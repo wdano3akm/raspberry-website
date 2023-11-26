@@ -66,6 +66,14 @@ async fn serve_request(req: Request<Body>, addr: SocketAddr) -> Result<Response<
                 .body(Body::from(css_content))
                 .unwrap())
         }
+        (&Method::GET, "/self-hosting-a-website") => {
+            let body = fs::read_to_string("article_11_23.html").await.unwrap_or_default();
+
+            Ok(Response::builder()
+                .header("Content-Type", "text/html")
+                .body(Body::from(body))
+                .unwrap())
+        }
         _ => error(404,None).await
  }
 }
