@@ -57,7 +57,13 @@ h1, h2, h3, h4, h5, h6 {
     font-family:        "Inconsolata", monospace;
     clear:              both;
 }
-
+iframe {
+    border: 2px dashed #333;
+    background-color:   #fff;
+    color:              #000;
+    margin-left:        1em;
+    margin-bottom:      1em;
+}
 img {
     padding:            2px;
     border:             2px dashed #333;
