@@ -1,23 +1,28 @@
-use std::convert::Infallible;
-use std::env::args;
-use std::net::SocketAddr;
+use std::{
+    convert::Infallible,
+    env::args,
+    collections::HashMap,
+    io,
+    path::PathBuf,
+    process::exit,
+    sync::Arc,
+    };
+use http::{
+    Method, StatusCode
+    };
+use hyper::{
+    {Body, Request, Response, Server},
+    service::{make_service_fn, service_fn},
+    };
+use tokio::{
+    sync::oneshot::Sender,
+    {fs, fs::read_dir},
+    };
+use chrono::prelude::*;
 
-
-use std::io::{ Error, self};
-use std::path::PathBuf;
-use std::process::exit;
-use std::sync::Arc;
-use http::{Method, StatusCode};
-use hyper::server::conn::AddrStream;
-use hyper::{Body, Request, Response, Server};
-use hyper::service::{make_service_fn, service_fn};
-use tokio::sync::oneshot::Sender;
-use tokio::{fs, fs::read_dir, sync::Mutex};
 
 #[tokio::main]
 async fn main() {
-
-    NonBlockingStd::new().await;
 
     match server().await {
         Ok(_) => {},
@@ -26,12 +31,16 @@ async fn main() {
 }
 
 pub async fn server() -> Result<(), Infallible> {
-    
-    let make_svc = make_service_fn(move |conn: &AddrStream| {
-        let addr = conn.remote_addr();
 
+    
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    let mut folder = NonBlockingStd::new().await;
+    let path = Arc::new(folder.folder());
+    let make_svc = make_service_fn(move |_|{
+        let  path = path.clone();
         let service = service_fn(move |req| { 
-            serve_request( req ,addr)
+            println!("[{}]: {}{:?}\n",Local::now(), req.uri(), req.headers());
+            serve_request(req, path.clone())
         });
         async move {Ok::<_, Infallible>(service) }
     });
@@ -40,15 +49,12 @@ pub async fn server() -> Result<(), Infallible> {
     let server = Server::bind(&addr).serve(make_svc);
 
     // create oneshot mpsc to sent signal to gracefully shutdown server from CLI
-    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     let graceful = server.with_graceful_shutdown(async {
         rx.await.ok();}
     );
-
     tokio::spawn(async move{
         // share transmitter with function
-        NonBlockingStd::stdin_loop(tx).await;
-        
+        folder.stdin_loop(tx).await;
     });
 
     if let Err(e) = graceful.await {
@@ -58,40 +64,27 @@ pub async fn server() -> Result<(), Infallible> {
     Ok(())
 }
 
-async fn serve_request(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, Infallible> {
-    match (req.method(), req.uri().path()) {
-        (&Method::GET, "/") => {
-            let body = fs::read_to_string("main.html").await.unwrap();
-            let body = body; 
-            Ok(Response::builder()
+async fn serve_request(req: Request<Body>, folder: Arc<PathBuf>) -> Result<Response<Body>, Infallible> {
+    let (list_files, urls) = NonBlockingStd::search_dir(&folder).await;
+    if req.method() == &Method::GET && req.uri().path() == "/" {
+             let body = fs::read_to_string("main.html").await.unwrap();
+            return Ok(Response::builder()
                 .header("Content-Type", "text/html")
                 .body(Body::from(body))
-                .unwrap())
-        }
-        (&Method::GET, "/main.css") => {
-            let css_content = fs::read_to_string("main.css").await.unwrap_or_default();
-            
-            Ok(Response::builder()
-                .header("Content-Type", "text/css")
-                .body(Body::from(css_content))
-                .unwrap())
-        }
-        (&Method::GET, "/self-hosting-a-website") => {
-            let body = fs::read_to_string("article_11_23.html").await.unwrap_or_default();
+                .unwrap())         
+    }
+    if req.method() == &Method::GET && urls.contains(&req.uri().path().to_string()) {
+        let body = fs::read_to_string(list_files.get(&req.uri().path().to_string()).unwrap());
+        Ok(Response::builder()
+            .header("Content-Type", "text") 
+            .body(Body::from(body.await.unwrap()))
+            .unwrap())
+    } else { error(404).await }
+    
 
-            Ok(Response::builder()
-                .header("Content-Type", "text/html")
-                .body(Body::from(body))
-                .unwrap())
-        }
-        _ => error(404,None).await
- }
 }
 
-// make the program able to recieve input while working (thread)
-// add functionality to scan current folder
-
-pub async fn error(code: u16, error: Option<Error>) -> Result<Response<Body>, Infallible> {
+pub async fn error(code: u16) -> Result<Response<Body>, Infallible> {
     let (response, status): (String, StatusCode) =  match code {
         500 => ("server issues".to_string(), StatusCode::INTERNAL_SERVER_ERROR),
         404 => {
@@ -111,9 +104,12 @@ pub async fn error(code: u16, error: Option<Error>) -> Result<Response<Body>, In
 } 
 
 struct NonBlockingStd {
-    list_files: Arc<Mutex<Vec<PathBuf>>>,
+    // the keys of "list files" and the vector "possible urls" contain the same data,
+    // it avoids having to ".into_keys()" the HashMap constantly
     folder: PathBuf,
 }
+
+unsafe impl Send for NonBlockingStd {}
 
 impl NonBlockingStd {
     pub async fn new() -> Self {
@@ -126,15 +122,13 @@ impl NonBlockingStd {
             eprintln!("Usage: ./website <folder>");
             exit(1)
         } 
-        let list = Self::search_dir(&path).await;
         
-        let list = Arc::new(Mutex::new(list));
-        NonBlockingStd{ list_files: list , folder: path }
+        NonBlockingStd{  folder: path  }
 
     }
 
 
-    pub async fn stdin_loop(tx: Sender<()>) {
+    pub async fn stdin_loop( &mut self, tx: Sender<()> ) {
         // loop indefinetely and read from stdin in separate thread to avoid blocking server
         loop { 
             let mut buffer = String::new();
@@ -147,20 +141,22 @@ impl NonBlockingStd {
                     // and then break the loop since we don't need to iterate anymore
                     println!("Gracefully shutting down the server now");
                     tx.send(()).unwrap();
-                    break;},
+                    break;
+                },
 
                 _ => continue
             }
         }
     }
-    pub async fn sync(info: Self)  -> Self {
-        let dir = Arc::new(Mutex::new(Self::search_dir(&info.folder).await));
-        NonBlockingStd { folder: info.folder, list_files: dir }
+
+    fn folder(&self) -> PathBuf {
+        self.folder.clone()
     }
 
-    async fn search_dir(path: &PathBuf) -> Vec<PathBuf> {
+    async fn search_dir(path: &PathBuf) -> (HashMap<String, PathBuf>, Vec<String>) {
          let mut dir = read_dir(&path).await.unwrap();
-            let mut list:Vec<PathBuf> = Vec::new();
+            let mut hashm:HashMap<String, PathBuf> = HashMap::new();
+            let mut list: Vec<String> = Vec::new();
            
             while let Some(entry) = dir.next_entry().await.unwrap() {
                 let path = entry.path();
@@ -172,11 +168,16 @@ impl NonBlockingStd {
                     [..=string.find(".").unwrap()];
                 // check for html or css
                 if end == "lmth." || end == "ssc." {
-                    //back to normal only if necessary
-                    let string:String= string.chars().rev().collect();
-                    list.push(PathBuf::from(string))
+                //back to normal only if necessary
+                //hashmap has extention to use in url + "/" (String) and path to retrieve file (PathBuf)
+                    let index = string.find("/").unwrap();
+                    let name_file = string[..=index].chars().rev().collect::<String>();
+                    let path = PathBuf::from(string.chars().rev().collect::<String>());
+                    
+                    list.push(name_file.to_owned());
+                    hashm.insert(name_file, path);
                 }           
         }
-    list
+    (hashm, list)
 }
 }
