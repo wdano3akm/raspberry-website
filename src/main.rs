@@ -6,6 +6,7 @@ use std::{
     path::PathBuf,
     process::exit,
     sync::Arc,
+    process::Command, println,
     };
 use http::{
     Method, StatusCode
@@ -23,7 +24,7 @@ use chrono::prelude::*;
 
 #[tokio::main]
 async fn main() {
-
+    NonBlockingStd::reload_css().expect("shit");
     match server().await {
         Ok(_) => {},
         Err(e) => println!("{e}"),
@@ -67,17 +68,31 @@ pub async fn server() -> Result<(), Infallible> {
 async fn serve_request(req: Request<Body>, folder: Arc<PathBuf>) -> Result<Response<Body>, Infallible> {
     let (list_files, urls) = NonBlockingStd::search_dir(&folder).await;
     if req.method() == &Method::GET && req.uri().path() == "/" {
-             let body = fs::read_to_string("main.html").await.unwrap();
+             let body = fs::read_to_string("templates/templates/main.html").await.unwrap();
             return Ok(Response::builder()
                 .header("Content-Type", "text/html")
                 .body(Body::from(body))
                 .unwrap())         
     }
-    if req.method() == &Method::GET && urls.contains(&req.uri().path().to_string()) {
-        let body = fs::read_to_string(list_files.get(&req.uri().path().to_string()).unwrap());
+
+    if req.method() == &Method::GET && req.uri().path() == "/main.css" {
+        println!("here");
+        let body = fs::read_to_string("templates/templates/main.css").await.unwrap();
+        return Ok(Response::builder()
+            .header("Content-Type", "text/css")
+            .body(Body::from(body))
+            .unwrap());
+    }
+    let request = &req.uri().path().to_string();
+    if req.method() == &Method::GET && urls.contains(&request) {
+        let req = request;
+
+        
+
+        let body = fs::read_to_string(list_files.get(req).unwrap()).await.unwrap();
         Ok(Response::builder()
-            .header("Content-Type", "text") 
-            .body(Body::from(body.await.unwrap()))
+            .header("Content-Type", "text/html") 
+            .body(Body::from(body))
             .unwrap())
     } else { error(404).await }
     
@@ -88,7 +103,7 @@ pub async fn error(code: u16) -> Result<Response<Body>, Infallible> {
     let (response, status): (String, StatusCode) =  match code {
         500 => ("server issues".to_string(), StatusCode::INTERNAL_SERVER_ERROR),
         404 => {
-            let response = match fs::read_to_string("404.html").await {
+            let response = match fs::read_to_string("templates/templates/404.html").await {
                 Ok(file) => file,
                 Err(_) => {
                     return Ok(Response::new(Body::from("Well, that wasn't supposed to happen")))
@@ -143,7 +158,9 @@ impl NonBlockingStd {
                     tx.send(()).unwrap();
                     break;
                 },
-
+                "reload" => {
+                    Self::reload_css().expect("shit")
+                },
                 _ => continue
             }
         }
@@ -180,4 +197,15 @@ impl NonBlockingStd {
         }
     (hashm, list)
 }
+    fn reload_css() -> Result<(), String>{
+        Command::new("ls").spawn().unwrap();
+       
+        match Command::new("python")
+            .current_dir("python_scripts")
+            .arg("force_reload_css.py") 
+            .output() {
+                Ok(_) => return Ok(()),
+                Err(e) => return Err(e.to_string()),
+            }
+    }
 }

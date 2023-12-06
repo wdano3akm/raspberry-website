@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Gianmaria Pierginni" />
+  <title>Welcome.</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+  </style>
+  <link rel="stylesheet" href="main.css?{{ query }}" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Adventures in the WWW.</h1>
+<p class="author">Gianmaria Piergianni</p>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#Introduction">Introduction</a></li>
+        <li><a href="#Domain">Registering a free domain</a></li>
+        <li><a href="#Raspberry Server">Transforming my Raspberry Pi into a server</a></li>
+        <li><a href="#Web Server">Coding a simple web server</a></li>
+        <li><a href="#Conclusions">Conclusions</a></li>
+</ul>
+</nav>
+    <p>How hard could it be to write and host a website without breaking the bank?</p>
+    <p>Well, let's just say that it isn't as easy as you may expect...</p>
+
+
+    <section id="Introduction" class="level1">
+    <h2>Introduction</h2>
+      <p>First thing first, let me explain why putting all the effort behind making a website in the first place: I had some free time and a spare Raspberry Pi Zero W laying around on my desk (which I was using as a <a href="https://pwnagotchi.ai/">pwnagotchi</a>) and I thought to myself that I could get much more use out of that sweet ARM chip.</p><img src='https://i.postimg.cc/PfB3Wkhz/Whats-App-Image-2023-11-26-at-00-49-52.jpg' border='0' alt='Whats-App-Image-2023-11-26-at-00-49-52'/></a><figcaption>The last picture of my beloved wtx</figcaption><p>Little did I know that using a six years old processor would be so problematic.</p>
+    </section>
+
+
+<section id="Domain" class="level1">
+<h2>Registering a free domain</h2>
+      <p>The first step was to register a domain on the web -a text based lable with the only advantage of being easier to memorize than the website IP- possibly with my name on it.<br /><br /> The first service that came to mind was "<i>Ngrok</i>": a service that allows developers to expose local servers to the web by tunneling a connection from the localhost to a ngrok domain.</p>
+
+      <p>Issue is you don't get to choose (or associate) a custom domain without a "premium account" and your website is blocked off to first time visitors by a warning which disappears only if you have session cookies or a custom header in the client's request.<br />
+      <blockquote><figure>
+        <img class="noborder" src='https://i.postimg.cc/gcx4XmSs/1700837171.png' border='0' alt='1700837171'/><figcaption>An example of what my page looked like when hosted with Ngrok</figcaption></figure> </blockquote>
+      <br />Since i was not willing to have a website that looks like a phishing scheme, I went back to the drawing board and started doing some research.<br/><br />I came across a domain registrer for "eu.org" subdomains (<a href="https://nic.eu.org">nic.eu.org</a>) and, after signing up to some sketchy websites that promised to provide working nameservers, I finally managed to apply for two domains under my name using the cloudfare basic account.<br /> However, since every application is checked by hand, I may have to wait <a href="https://forum.infinityfree.com/t/how-long-does-it-take-to-approve-your-eu-org-domain/71345">a couple months</a> before i can migrate this website to the new domain.(The current one was bought for 0.91 euros from Namecheap, that's why it's <i>almost</i> free).</p>
+      <p>Now that we have a domain we just need some way to host our website.</p>
+
+
+<section id="Raspberry Server" class="level1">
+        <h2>Trasforming my Raspberry Pi into a server</h2>
+        <p>Finally we can dwelve into the technical side of the project: programming the server and getting the package to run on my ancient Raspberry Pi Zero W.<br />
+          <br />At first I thought that the best way to run a server on a computer the size of half a credit card was to use baremetal rust but, since even the most basic crate that handles HTTP requests
+          <a href="https://github.com/tokio-rs/tokio/issues/3544">does not have support for a no_std project</a> (most are based on the <a href="https://crates.io/crates/mio">mio crate</a> which requires an OS for its I/O event queue as it makes frequent use of <a href="https://www.man7.org/linux/man-pages/man7/epoll.7.html">epoll calls</a>), I had to install some lightweight linux distro.<br /><br />
+          Initially I intended on using Arch Linux as I am quite familiar with it and -despite not being official- there is a <a href="https://archlinuxarm.org">port for ARM processors</a>.
+          Much to my disappointment, I soon discovered that the development of Arch for ARMv6 processor has been discontinued since February 2022 and I could not find a valid image file to flash on the SD card on any of the <a href="https://alaa.ad24.cz/repos/2022/02/06/armv6h/">unofficial archives</a>.<br /></p><a href='https://postimg.cc/75Q647GQ' target='_blank'><img src='https://i.postimg.cc/yN7SFyVB/Whats-App-Image-2023-11-26-at-00-49-53.jpg' border='0' alt='Whats-App-Image-2023-11-26-at-00-49-53'/><figcaption>The sd card reader I used</figcaption></a>
+        <p>Not willing to spend any more time looking for answers on ancient forums, I decided to just use the lite version of the Raspberry OS.<br />While I was downloading the necessary files I rememberd that the computer I used to flash the SD card broke down months ago and my current one does not have any SD slot on the I/O panels.<br /><br />
+          Determined to finish what I started, I tore down the old PC and retrieved the reader which I connected to the motherboard using the USB headers and was ready to flash the OS on the chip.<br /><br />If someone is trying to follow along, I advise using the <a href="https://www.raspberrypi.com/software/">Raspberry Pi imager</a> as it allows you to set a SSID and password for your network and turn on SSH without having to mess with any of the system files.</p><blockquote><figure><img src='https://i.postimg.cc/Jn9k2WRb/setting-raspberry-1.png' border='0' alt='setting-raspberry-1'/><img src='https://i.postimg.cc/VvqdZrG8/setting-raspberry-2.png' border='0' alt='setting-raspberry-2'/></figure>Settings I used when flashing the image to my SD</blockquote><p>Now that my Raspberry was ready I could start programming the web server...</p>
+
+
+<section id="Web Server" class="level1">
+          <h2>Coding a simple web server</h2>
+          <p>Now the grand finale: writing the rust script to run the server.
+            Everything is pretty straight-forward if you have any experience with the tokio or hyper crate.<br /><small>(up to date code can be found <a href="https://github.com/wdano3akm/raspberry-website">on my github profile</a>)</small></p>
+          <p>The main loop only consists of creating a service from a generic function "<b>serve_request</b>"</p>
+          <p>
+          <div class="sourceCode">
+            <pre class="sourceCode rust">
+<code>pub async fn server() -> Result<(), Infallible>{
+
+        let make_svc = make_service_fn(move |conn: &AddrStream| {
+        let addr = conn.remote_addr();
+
+        let service = service_fn(move |req| { 
+                serve_request( req ,addr)
+        });
+        async move {Ok::<_, Infallible>(service) }
+});</code>
+            </pre>
+</div>
+          And the function itself with a "<b>match</b>" statement:
+          <div class="sourceCode">
+            <pre class="sourceCode rust">
+<code>
+[...]
+match (req.method(), req.uri().path()) {
+         (&Method::GET, "/") => {
+            let body = fs::read_to_string("main.html").await.unwrap();
+            let body = body; 
+            Ok(Response::builder()
+                .header("Content-Type", "text/html")
+                .body(Body::from(body))
+                .unwrap())
+        } 
+[...]</code>
+            </pre>
+</div>
+
+          Remember to link the relevant css page into every html and to add an arm to the match statement for your <i>main.css</i> file.<br /><br />
+          Now just connect to localhost using a custom port (I will use 7878 but as long as you don't pick <a href="https://en.wikipedia.org/wiki/List_of_TCP_and_UDP_port_numbers">one used by some other protocol</a> it will not cause any problem).
+          <div class="sourceCode">
+            <pre class="sourceCode rust">
+<code>
+let addr = ([127, 0, 0, 1], 7878).into();
+let server = Server::bind(&addr).serve(make_svc);</code>
+            </pre>
+                      </div>
+And we are basically set. <br />
+          <br /> <h3>Building and Hosting our website</h3>
+          Now we just need to build the application (remember to specify the arm architecture as a target otherwise you won't be able to run it on the Raspberry chip) and I will use "<i>CloudFlare</i>" to tunnel the connection to my new domain.<br /><br /> Ipotetically you could build the application directly on the Raspberry but, as you can probably see from the screenshot, it will not be a fast process to say the least.<br /><br /><img height="100" width="800"src='https://i.postimg.cc/CMDG2YKv/1700951191.png' border='0' alt='1700951191'/><br /><br />I will not describe the process of creating and running a CloudFlare tunnel as it is <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-local-tunnel/">well documented</a> and easy to follow.<br /><br />Just a heads-up, if you are using an ARMv6 chip you will not be able to install or run the latest package. In order for it to work you have to download an earlier build (files can be found <a href="https://hobin.ca/cloudflared/">here</a>, for some reason any package after version 2023.8.1 is empty or not working).
+    <section id="Conclusions" class="level1">
+            <h2>Conclusions</h2>
+            <p>Finally we proved that it is possible to have a perfectly working website using some inexpensive components and lots of patience.<br /> That said, I strongly advise to buy a newer chip if you are going to attempt this project. Compatibility issues are not fun to deal with, and a more performant device means not having to worry too much about the complexity of the program or the number of concurrent visitors.<br /><br />I will try to improve the code by adding logging functionalities and changing the style of the site (the css is <b>heavily</b> inspired by another tech blog).<br /><br />UwU</p>
+      </section>
+<footer>
+<a href="/">HOME</a> • <a href="/#about">ABOUT</a> • <a href="/#contact">CONTACT</a>
+<p><small>Running on a Raspberry Pi Zero W...</small></p>
+</footer>
+  </body>
+</html>
