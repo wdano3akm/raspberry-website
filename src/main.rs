@@ -1,62 +1,39 @@
-use std::{
-    convert::Infallible,
-    env::args,
-    collections::HashMap,
-    io,
-    path::PathBuf,
-    process::exit,
-    sync::Arc,
-    };
-use http::{
-    Method, StatusCode
-    };
-use hyper::{
-    {Body, Request, Response, Server},
-    service::{make_service_fn, service_fn},
-    };
-use tokio::{
-    sync::oneshot::Sender,
-    {fs, fs::read_dir},
-    };
-use chrono::prelude::*;
+use std::convert::Infallible;
+use std::ffi::OsString;
+use std::net::SocketAddr;
 
 
-#[tokio::main]
-async fn main() {
+use std::{io:: Error, path::PathBuf};
+use http::{Method, StatusCode};
+use hyper::body::{Bytes, HttpBody};
+use hyper::server::conn::AddrStream;
+use hyper::{Body, Request, Response, Server};
+use hyper::service::{make_service_fn, service_fn};
+use tokio::fs;
 
-    match server().await {
+fn main() {
+    match server() {
         Ok(_) => {},
         Err(e) => println!("{e}"),
     };
 }
 
+#[tokio::main]
 pub async fn server() -> Result<(), Infallible> {
-
     
-    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-    let mut folder = NonBlockingStd::new().await;
-    let path = Arc::new(folder.folder());
-    let make_svc = make_service_fn(move |_|{
-        let  path = path.clone();
+    let make_svc = make_service_fn(move |conn: &AddrStream| {
+        let addr = conn.remote_addr();
+
         let service = service_fn(move |req| { 
-            println!("[{}]: {}{:?}\n",Local::now(), req.uri(), req.headers());
-            serve_request(req, path.clone())
+            serve_request( req ,addr)
         });
         async move {Ok::<_, Infallible>(service) }
     });
 
     let addr = ([127, 0, 0, 1], 7878).into();
     let server = Server::bind(&addr).serve(make_svc);
-
-    // create oneshot mpsc to sent signal to gracefully shutdown server from CLI
-    let graceful = server.with_graceful_shutdown(async {
-        rx.await.ok();}
-    );
-    tokio::spawn(async move{
-        // share transmitter with function
-        folder.stdin_loop(tx).await;
-    });
-
+    let graceful = server.with_graceful_shutdown(shutdown_signal());
+    
     if let Err(e) = graceful.await {
         eprintln!("server error: {e}");
     }
@@ -64,27 +41,61 @@ pub async fn server() -> Result<(), Infallible> {
     Ok(())
 }
 
-async fn serve_request(req: Request<Body>, folder: Arc<PathBuf>) -> Result<Response<Body>, Infallible> {
-    let (list_files, urls) = NonBlockingStd::search_dir(&folder).await;
-    if req.method() == &Method::GET && req.uri().path() == "/" {
-             let body = fs::read_to_string("main.html").await.unwrap();
-            return Ok(Response::builder()
-                .header("Content-Type", "text/html")
-                .body(Body::from(body))
-                .unwrap())         
-    }
-    if req.method() == &Method::GET && urls.contains(&req.uri().path().to_string()) {
-        let body = fs::read_to_string(list_files.get(&req.uri().path().to_string()).unwrap());
-        Ok(Response::builder()
-            .header("Content-Type", "text") 
-            .body(Body::from(body.await.unwrap()))
-            .unwrap())
-    } else { error(404).await }
-    
 
+async fn shutdown_signal() {
+    tokio::signal::ctrl_c()
+        .await
+        .expect("failed to install CTRL+C signal handler")
 }
 
-pub async fn error(code: u16) -> Result<Response<Body>, Infallible> {
+async fn serve_request(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, Infallible> {
+    match (req.method(), req.uri().path()) {
+        (&Method::GET, "/") => {
+            let body = fs::read_to_string("main.html").await.unwrap();
+            Ok(Response::builder()
+                .header("Content-Type", "text/html")
+                .body(Body::from(body))
+                .unwrap())
+        }
+        (&Method::GET, "/main.css") => {
+            let css_content = fs::read_to_string("main.css").await.unwrap_or_default();
+            
+            Ok(Response::builder()
+                .header("Content-Type", "text/css")
+                .body(Body::from(css_content))
+                .unwrap())
+        }
+        (&Method::GET, "/self-hosting-a-website") => {
+            let body = fs::read_to_string("article_11_23.html").await.unwrap_or_default();
+
+            Ok(Response::builder()
+                .header("Content-Type", "text/html")
+                .body(Body::from(body))
+                .unwrap())
+        }
+        (&Method::GET, "/tip-your-server") => {
+            let body = fs::read_to_string("article_05_05.html").await.unwrap_or_default();
+
+            Ok(Response::builder()
+                .header("Content-Type", "text/html")
+                .body(Body::from(body))
+                .unwrap())
+        }
+        (&Method::GET, "/maths") => {
+            let body = fs::read_to_string("maths.html").await.unwrap_or_default();
+
+            Ok(Response::builder()
+                .header("Content-Type", "text/html")
+                .body(Body::from(body))
+                .unwrap())
+        }
+        
+        (&Method::GET, _) => other_content(&req).await,
+        _ => error(404,None).await
+ }
+}
+
+pub async fn error(code: u16, error: Option<Error>) -> Result<Response<Body>, Infallible> {
     let (response, status): (String, StatusCode) =  match code {
         500 => ("server issues".to_string(), StatusCode::INTERNAL_SERVER_ERROR),
         404 => {
@@ -103,81 +114,50 @@ pub async fn error(code: u16) -> Result<Response<Body>, Infallible> {
     Ok(response)
 } 
 
-struct NonBlockingStd {
-    // the keys of "list files" and the vector "possible urls" contain the same data,
-    // it avoids having to ".into_keys()" the HashMap constantly
-    folder: PathBuf,
+pub async fn media_response(x: PathBuf) -> Result<Vec<u8>, String> {
+    let mut buffer = Vec::new();
+    if tokio::fs::read(x.clone()).await.is_ok(){
+        buffer = tokio::fs::read(x).await.unwrap();
+        return Ok(buffer);
+        } else {
+        return Err(String::from("something went wrong while reading the file"))
+    }
 }
 
-unsafe impl Send for NonBlockingStd {}
+pub async fn other_content(request: &Request<Body>) -> Result<Response<Body>, Infallible> {
+    let (dir_path, content_type) = if request.uri().path().contains("img"){
+        let dir_path = "img";
+        let content_type = "image/png";
+        (dir_path, content_type)
+    } else if request.uri().path().contains("pdf"){
+        let dir_path = "pdf";
+        let content_type = "application/pdf";
+        (dir_path, content_type)
+    } else {return Ok(error(404, None).await.unwrap())};
 
-impl NonBlockingStd {
-    pub async fn new() -> Self {
-        
-        let args :Vec<String> = args().collect();
-        let path = PathBuf::from(&args[1]);
-        if args.len() != 2 || !path.is_dir() {
-            eprintln!("ERROR: incorrect arguments");
-            eprintln!("Please specify the relative path of a valid folder");
-            eprintln!("Usage: ./website <folder>");
-            exit(1)
-        } 
-        
-        NonBlockingStd{  folder: path  }
 
+    let mut entries = fs::read_dir(dir_path).await.unwrap();
+    let mut names = Vec::new();
+    while let Some(entry) = entries.next_entry().await.unwrap() {
+        names.push(entry.file_name()) 
     }
+    let tosearch = OsString::from(&request.uri().path()[5..]).clone();
 
-
-    pub async fn stdin_loop( &mut self, tx: Sender<()> ) {
-        // loop indefinetely and read from stdin in separate thread to avoid blocking server
-        loop { 
-            let mut buffer = String::new();
-            io::stdin().read_line(&mut buffer).unwrap();
-
-            match buffer.trim() {
-               "exit"  => {
-
-                    // if we need to terminate the program we send the signal
-                    // and then break the loop since we don't need to iterate anymore
-                    println!("Gracefully shutting down the server now");
-                    tx.send(()).unwrap();
-                    break;
-                },
-
-                _ => continue
-            }
+    if names.contains(&tosearch){
+        let temp_path = format!("{}{}{}", dir_path, "/", tosearch.to_str().unwrap());
+        let path = PathBuf::from(temp_path);
+        let tosearch = media_response(path).await;
+        match tosearch {
+            Ok(img) => {Ok(Response::builder()
+            .header("Content-Type",content_type) 
+            .body(Body::from(img)).unwrap())},
+            _ => error(500, None).await,
         }
+// add pdf support via "else if" req uri contains pdf
+    } else {
+        error(404, None).await
     }
-
-    fn folder(&self) -> PathBuf {
-        self.folder.clone()
-    }
-
-    async fn search_dir(path: &PathBuf) -> (HashMap<String, PathBuf>, Vec<String>) {
-         let mut dir = read_dir(&path).await.unwrap();
-            let mut hashm:HashMap<String, PathBuf> = HashMap::new();
-            let mut list: Vec<String> = Vec::new();
-           
-            while let Some(entry) = dir.next_entry().await.unwrap() {
-                let path = entry.path();
-                let string = &path.into_os_string().into_string().unwrap()
-                    //reverse so that first "." must be the type of file
-                    .trim().chars().rev().collect::<String>();
-                let end = &string
-                    .trim()
-                    [..=string.find(".").unwrap()];
-                // check for html or css
-                if end == "lmth." || end == "ssc." {
-                //back to normal only if necessary
-                //hashmap has extention to use in url + "/" (String) and path to retrieve file (PathBuf)
-                    let index = string.find("/").unwrap();
-                    let name_file = string[..=index].chars().rev().collect::<String>();
-                    let path = PathBuf::from(string.chars().rev().collect::<String>());
-                    
-                    list.push(name_file.to_owned());
-                    hashm.insert(name_file, path);
-                }           
-        }
-    (hashm, list)
+    
 }
-}
+
+    

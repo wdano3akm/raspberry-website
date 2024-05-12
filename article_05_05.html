@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Gianmaria Piergianni" />
+  <title>Welcome.</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+  </style>
+  <link rel="stylesheet" href="main.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Remember to tip your <i>server</i>.</h1>
+<p class="author">Gianmaria Piergianni</p>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#Introduction">Introduction</a></li>
+<li><a href="#Hardware">Hardware</a></li>
+<li><a href="#ProxmoxInstallation">Proxmox Installation</a></li>
+<li><a href="#RandomServices">Random Services</a></li>
+
+</ul>
+</nav>
+<p>- <i>"What could go wrong?"</i> <br />He said to himself, unknowingly.
+<img src='/img/meme.png' border='0' alt='meme' width="auto" height="1000" /></a></p>
+		<section id="Introduction" class="level1"> 
+    <h2>Introduction</h2>
+<p>Hi everyone. Long time no see!<br />
+I'll have to excuse myself for disappearing for so long. It has been difficult to keep up with university admission tests and my final year of high school so I did not have much time to work on this blog. However my tech journey did not stop during this time frame.
+<br /><br />
+        You may remeber that <a href="https://gianmariapiergianni.xyz/self-hosting-a-website">last time we met</a> we worked on writing and hosting a simple website without spending more than a couple euros. This time instead I will show you a "proper" homelab that I was able to build <s>thanks to our sponsor</s> using the money I got from INPS (the Italian national institute for social security).<br /><br /> One last thing, if you want to learn more about networking, hosting and get that <b>nerd high</b> I cannot stress enough how fun self-hosting can be. You do not need expensive hardware to start but beware you might end up losing track of time working on your server and go to sleep at 3AM on a weekday.
+</p>
+</section>
+
+
+<section id="Hardware" class="level1">
+<h2>Hardware</h2>
+      <p>Let's start our journey from the hardware.<br /> Picking the right pieces to build your dream homelab is all but easy and there are a number of factor you have to take into account. Personally I wanted it to be powerful enough to run a minecraft server for me and my friends and a streaming service for my family (therefore I needed a CPU with an integrated graphic card) without it being too power hungry given <a href="https://tradingeconomics.com/italy/electricity-price">the current condition of electricity prices in Italy</a>. <br /><br/>
+        After some research I stubled upon <a href="https://youtu.be/vjDoQA4C22c?si=KICfAHlH611W5eqw">this video by 'Wolfgang's Channel'</a> which suggested a <a href="https://it.aliexpress.com/item/1005004883139808.html">Motherboard + CPU mini ITX</a> which had enough SATA ports for all the disks I wanted to add and more.<img src="/img/main-board.png"><br />
+        The aforementioned CPU is an Intel Pentium N6005 with a low TDP of about 10W to which I connected three used 6TB hard disks (buy them new if you can), one 250GB NVME ssd (the cheapest stick since it will only contain the OS and a couple of containers) and 16GB of DDR4 SO-DIMM RAM which I intend on upgrading to 32GB as soon as possible.
+        <br /><br />
+        To power it all I initally intended on using a <a href="https://youtu.be/vyQd6aYr0-0?si=OVEyd3a6u47A3S0-">PicoPSU</a> but I soon realized that I had made some mistakes when calculating the total power draw of the system and I had to buy a proper PSU from Amazon.
+        <br /><br />
+        If you want to replicate my setup I will give you a couple of tips to pick what best suits you:  <ol type="1">
+  <li><b>Do not save money on the PSU</b> (the risk is not worth the reward)</li>
+        <li><b>Memory can still be quite expensive and HDD are incredibly power hungry</b> (do you really need 40TB to store all your data?)</li>
+        <li><b>Avoid old network equipment</b> (the money saved will go into your electricity bill)</li>
+</ol>
+<br />
+<br />
+Taking everything into account, I spent about 600€ for the whole build as I was able to save some money by repurposing some parts from old computers I had lying around.
+      </p>
+<section id="ProxmoxInstallation" class="level1">
+<h2>Proxmox Installation</h2>
+<p>
+          As for the hypervisor to run on the server I chose proxmox because it is an <a href="https://www.proxmox.com/">open source solution</a> with a free tier (which is more than enough for an home project) and makes it easy to create virtual machines and container with ease.
+          <br />
+          <br />
+          As I was quite overwhelmed by the amount of services I had to setup (and struggled to understand the difference between a container and a virtual machine) I loosely followed <a href="https://youtu.be/yDkc3D3BFhM?si=-heKiA6PmYZ94OfV">this tutorial</a>. However, as I mentioned earlier, the sketchy "power supply" I was using could not handle the energy consumption of three hard drives spinning up and -because all the electronics are exposed- it would power off if it came into contact with anything.
+          <br />
+          <br />
+          While I ordered my new PSU I finished setting up Proxmox (despite it not liking my peripherals if I connect them to the USB 3.0 ports) which took more time than I expected as I typed the wrong subnet mask during the setup and could not figure out why it was impossible to find the web UI.
+          <br />
+          <br />
+ <img src="/img/truenas.png">
+          As the new PSU arrived I finished setting up truenas inside a vm and created my first pool. To have more control over the hard disks I <a href="https://pve.proxmox.com/wiki/Passthrough_Physical_Disk_to_Virtual_Machine_(VM)">passed them through the virtual machine</a> and set up an SMB share and a routine to backup my google drive (I currently use my school's google account to have virtually infinite space to store files on but I am afraid that they will cut me off as soon as I finish my fifth year). Unfortunately, due to network limitations, the transfer speed I can currently achieve is around 10.5-11 Mb/s which is mediocre at best.
+        
+          <br />
+          <br />
+        </p>
+<section id="RandomServices" class="level1">
+<h2>Random Services</h2>
+<p>
+            After creating the SMB share i had some issues attaching to it from my linux machine. For anyone struggling to do it (just like I did) you can simply create a folder where you want to mount the share and the add to <a href="https://wiki.archlinux.org/title/Fstab"><b>/etc/fstab</b></a> something along the lines of:<br />
+                      <div class="sourceCode">
+            <pre class="sourceCode rust">
+<code>
+//192.168.X.X/<i>path_to_folder_on_server</i> /<i>path_on_local_machine</i> -o username=<i>add_your_username</i>,password=<i>add_your_password</i>,vers=2.0,file_mode=0777,dir_mode=0777
+              </code>
+</pre>
+</div>
+          The file and directory mode are set to 777 as this is my local machine and I am the only one using it at all times, <b>beware of giving access and modifying rights to all users and remember to set dump and fsck variables!</b> (I have them on 0 and 1).
+          <br />
+          <br />
+          Now that all the necessary stuff is set up and working we can start looking into some random services which may prove useful to have.<br />
+          <ol>
+            <h3><li>First and foremost, this website.</h3></li>
+            <br />I won't go into too much details as I've already talked about my website long enough in the previous article. I just created an ArchLinux container, compiled the website executable for x64 and wrote a systemd script that runs it whenever I have to reboot the server.
+            <br />
+            <h3><li>Minecraft server</li></h3>
+            <br/>As I don't have a static IP and don't want to pay for any subscription I had to improvise a bit. I used <a href="https://ngrok.com/">ngrok</a> to make the minecraft server available outside of my local network.<br />
+            Coincidentally, I found out that whenever you start ngrok it will host a webpage on port 4040 with some information on your session. The only logical thing to do was to write a quick bash script that restarts the server, curls the new link and sends it to a discord channel via webhook.<br />
+                     <div class="sourceCode">
+            <pre class="sourceCode bash">
+
+<code>
+#!/bin/bash
+
+# Start a new tmux session named "ngrok"
+tmux new-session -d -s ngrok
+
+# Send the ngrok command to the tmux session
+tmux send-keys -t ngrok 'ngrok tcp 25565' C-m
+
+# Wait for ngrok to initialize (adjust the sleep duration as needed)
+sleep 5
+
+# Get the public URL from ngrok
+public_url=$(curl localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' | sed 's/^.\{6\}//')
+
+# Send the public URL to Discord webhook
+curl -X POST -H "Content-Type: application/json" -d '{"content":"'"$public_url"'"}' <i>webook link</i>
+<br /></code></pre></div>
+            <br />
+            <h3><li>PiHole, Unbound and portainer</h3>
+            <br/>
+            Last but not least I added two <b>Debian 11</b> containers, one that serves as DHCP router (even though for logical complexity I should move it to an entirely different machine) and one with <b>Portainer</b> where I have most of the random docker containers that I use (<a href="https://jellyfin.org/">jellyfin</a>,<a href="https://github.com/silverbulletmd/silverbullet">silverbullet</a>,<a href="https://hub.docker.com/r/linuxserver/qbittorrent"> qbittorent</a>)
+            
+
+<img src='/img/portainer.png'/></a>
+
+            <br />
+            <br />
+            <br />
+            Last but not least, I wanted to give some credit to <a href="https://roadtohomelab.blog/homelab-homepage-guide/">this awesome article</a> that guided me through creating a start page for my server. I picked <a href="https://github.com/gethomepage/homepage?ref=roadtohomelab.blog">homepage</a> in the end and I can say without remorse that it has been serving me well!
+	    <br/>
+	    <br />
+	    <br />
+            </p>
+
+<footer>
+<a href="/">HOME</a> • <a href="/#about">ABOUT</a> • <a href="/#contact">CONTACT</a>
+<p><small>Running on a Raspberry Pi Zero W...</small></p>
+</footer>
+  </body>
+</html>
